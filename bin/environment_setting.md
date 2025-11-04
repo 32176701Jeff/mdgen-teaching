@@ -5,20 +5,20 @@
 1. making key and lock (on server)
     >```
     >cd ~/.ssh
-    >ssh-keygen -t ed25519 -f ~/.ssh/ed25519_zinfandel_m5813 -C "zinfandel_m5813_test"
-    >chmod 600 ~/.ssh/ed25519_zinfandel_m5813_test
-    >cat ~/.ssh/ed25519_zinfandel_m5813_test.pub >> ~/.ssh/authorized_keys
+    >ssh-keygen -t ed25519 -f ~/.ssh/ed25519_zinfandel_m5813 -C "zinfandel_m5813"
+    >chmod 600 ~/.ssh/ed25519_zinfandel_m5813
+    >cat ~/.ssh/ed25519_zinfandel_m5813.pub >> ~/.ssh/authorized_keys
     >chmod 600 ~/.ssh/authorized_keys
     ># ~/.ssh/id_rsa是私鑰 用usb傳到client(文書機)
     ># ~/.ssh/id_rsa.pub是公鑰
     >```
-    scp ~/.ssh/ed25519_zinfandel_m5813_test m5-cluster:~/.ssh/
+    scp ~/.ssh/ed25519_zinfandel_m5813 zinfandel:~/.ssh/
 
 1. check /etc/ssh/sshd_config (on server)
     >```
     >nano /etc/ssh/sshd_config
     >```
-
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIU+6jmq8xVAZyI7fR4NvVhGbqGQ2EVLx8j7TFeMszqS zinfandel_m5813
     in /etc/ssh/sshd_config
     >``` 
     >PubkeyAuthentication yes

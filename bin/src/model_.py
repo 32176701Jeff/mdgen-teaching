@@ -204,6 +204,11 @@ def mix_with_gauss(ca, t):
     gauss = np.random.normal(loc=0.0, scale=1.0, size=ca.shape)
     
     # 計算加權後的結果
+    # gauss=x0
+    # ca = x1
+    # (1-t)=sigma t
+    # t = alpha t
+    # output=xt
     output = (1 - t) * gauss + t * ca
     
     return output
