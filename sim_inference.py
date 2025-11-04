@@ -18,6 +18,7 @@ parser.add_argument('--out_dir', type=str, default=".")
 parser.add_argument('--teaching_ipa', type=str, default='')
 parser.add_argument('--teaching_dta', type=str, default='')
 parser.add_argument('--teaching_testing', type=str, default='')
+parser.add_argument('--ipa_feature', type=str, default='')
 ##### mdgen-teaching, adding parameter ##### 
 parser.add_argument('--split', type=str, default='splits/4AA_test.csv')
 args = parser.parse_args()
@@ -145,7 +146,7 @@ def main():
 
     #### mdgen-teaching 074-Q3########
     # model_args.sampling_method = 'dopri5'
-    add_keys = ['teaching_ipa','teaching_dta']
+    add_keys = ['ipa_feature','teaching_dta']
     for key in add_keys:
         setattr(model_args, key, getattr(args, key, ''))
     #### mdgen-teaching 074-Q3########

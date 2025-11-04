@@ -250,9 +250,10 @@ class LatentMDGenModel(nn.Module):
         if self.args.prepend_ipa:  # IPA doesn't need checkpointing
             uuu = self.run_ipa(t[:, 0], mask[:, 0], start_frames, end_frames, aatype, x_d=x_d)
             
+            # ##### mdgen-teaching,ipa #####
             if hasattr(self.args, "ipa_feature") and self.args.teaching_ipa:
                 np.save(f"{self.args.ipa_feature}/{mdgen_teaching_t}.npy", uuu.detach().cpu().numpy())
-
+            # ##### mdgen-teaching,ipa #####
             x = x + uuu[:, None]
 
         for layer_idx, layer in enumerate(self.layers):
