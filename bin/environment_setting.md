@@ -5,14 +5,14 @@
 1. making key and lock (on server)
     >```
     >cd ~/.ssh
-    >ssh-keygen -t ed25519 -f ~/.ssh/ed25519_zinfandel_m5813 -C "zinfandel_m5813"
-    >chmod 600 ~/.ssh/ed25519_zinfandel_m5813
-    >cat ~/.ssh/ed25519_zinfandel_m5813.pub >> ~/.ssh/authorized_keys
+    >ssh-keygen -t ed25519 -f ~/.ssh/ed25519_a1990_01 -C "a1990_01"
+    >chmod 600 ~/.ssh/ed25519_a1990_01
+    >cat ~/.ssh/ed25519_a1990_01.pub >> ~/.ssh/authorized_keys
     >chmod 600 ~/.ssh/authorized_keys
     ># ~/.ssh/id_rsa是私鑰 用usb傳到client(文書機)
     ># ~/.ssh/id_rsa.pub是公鑰
     >```
-    scp ~/.ssh/ed25519_zinfandel_m5813 zinfandel:~/.ssh/
+    scp ~/.ssh/ed25519_a1990_01 zinfandel:~/.ssh/
 
 1. check /etc/ssh/sshd_config (on server)
     >```
