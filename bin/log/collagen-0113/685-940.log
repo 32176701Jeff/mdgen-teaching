@@ -1,24 +1,0 @@
-  0%|          | 0/1 [00:00<?, ?it/s]/home/jeff/miniconda3/envs/mdgen/lib/python3.10/site-packages/mdtraj/core/topology.py:84: UserWarning: atom_indices are not monotonically increasing
-  warnings.warn("atom_indices are not monotonically increasing")
-/mnt/hdd/jeff/mdgen-#1/scripts/analyze_ensembles#4.py:66: RuntimeWarning: invalid value encountered in divide
-  mi = np.nansum(joint_probs * np.log(joint_probs / indep_probs), (-1, -2))
-100%|██████████| 1/1 [00:04<00:00,  4.18s/it]100%|██████████| 1/1 [00:04<00:00,  4.18s/it]
-Analyzing 685-940
-aaaaaaaaaaaaaaaaaa 685-940
-Loading reference trajectory
-Loaded 101 reference frames
-Loading AF2 conformers
-Loaded 250 AF2 conformers
-Reference has 2702 atoms
-Crystal has 2702 atoms
-AF has 1605 atoms
-Removing hydrogens
-Reference has 1605 atoms
-Crystal has 1605 atoms
-AF has 1605 atoms
-Aligned on 1605 atoms
-Using first 100 frames for both traj_aa and aftraj_aa
-Sliced 256 C-alphas
-Doing PCA
-Computing atomic EMD
-Analyzing SASA
