@@ -1,0 +1,5 @@
+  0%|          | 0/1 [00:00<?, ?it/s]/home/jeff/miniconda3/envs/mdgen/lib/python3.10/site-packages/mdtraj/core/topology.py:84: UserWarning: atom_indices are not monotonically increasing
+  warnings.warn("atom_indices are not monotonically increasing")
+/mnt/hdd/jeff/mdgen-#1/scripts/analyze_ensembles#4.py:66: RuntimeWarning: invalid value encountered in divide
+  mi = np.nansum(joint_probs * np.log(joint_probs / indep_probs), (-1, -2))
+100%|██████████| 1/1 [00:04<00:00,  4.22s/it]100%|██████████| 1/1 [00:04<00:00,  4.22s/it]

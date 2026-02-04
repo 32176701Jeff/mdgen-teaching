@@ -14,12 +14,6 @@ parser.add_argument('--no_frames', action='store_true')
 parser.add_argument('--tps', action='store_true')
 parser.add_argument('--xtc', action='store_true')
 parser.add_argument('--out_dir', type=str, default=".")
-##### mdgen-teaching, adding parameter ##### 
-parser.add_argument('--teaching_ipa', type=str, default='')
-parser.add_argument('--teaching_dta', type=str, default='')
-parser.add_argument('--teaching_testing', type=str, default='')
-parser.add_argument('--ipa_feature', type=str, default='')
-##### mdgen-teaching, adding parameter ##### 
 parser.add_argument('--split', type=str, default='splits/4AA_test.csv')
 args = parser.parse_args()
 
@@ -40,21 +34,18 @@ os.makedirs(args.out_dir, exist_ok=True)
 
 
 def get_batch(name, seqres, num_frames):
-    arr = np.lib.format.open_memmap(f'{args.data_dir}/{name}{args.suffix}.npy', 'r')
+    arr = np.lib.format.open_memmap(f'{args.data_dir}/{name}{args.suffix}_fit.npy', 'r')
 
     if not args.tps: # else keep all frames
         arr = np.copy(arr[0:1]).astype(np.float32)
-
     frames = atom14_to_frames(torch.from_numpy(arr))
-    
     ####如果遇到沒有見過的胺基酸 就設為20
     seqres = torch.tensor([restype_order[c] if c in restype_order else 20 for c in seqres])
-    ####
+    ####如果遇到沒有見過的胺基酸 就設為20
 
     atom37 = torch.from_numpy(atom14_to_atom37(arr, seqres[None])).float()
     L = len(seqres)
     mask = torch.ones(L)
-    
     if args.no_frames:
         return {
             'atom37': atom37,
@@ -123,6 +114,7 @@ def do(model, name, seqres):
     start = time.time()
     for _ in tqdm.trange(args.num_rollouts):
         atom14, batch = rollout(model, batch)
+        # print(atom14[0,0,0,1], atom14[0,-1,0,1])
         all_atom14.append(atom14)
 
     print(time.time() - start)
@@ -137,42 +129,46 @@ def do(model, name, seqres):
         traj.save(os.path.join(args.out_dir, f'{name}.xtc'))
         traj[0].save(os.path.join(args.out_dir, f'{name}.pdb'))
 
+
+# 增加try erro, 避免一個name錯誤整個都不跑
+import traceback
 @torch.no_grad()
 def main():
-
-    ############# mdgen-teaching #####
-    ckpt = torch.load(args.sim_ckpt, map_location='cpu')
-    model_args = ckpt['hyper_parameters']['args']
-
-    #### mdgen-teaching 074-Q3########
-    # model_args.sampling_method = 'dopri5'
-    add_keys = ['ipa_feature','teaching_dta']
-    for key in add_keys:
-        setattr(model_args, key, getattr(args, key, ''))
-    #### mdgen-teaching 074-Q3########
-
-    model = NewMDGenWrapper(model_args)
-    ############# mdgen-teaching #####
-
-
-
-    #model = NewMDGenWrapper.load_from_checkpoint(args.sim_ckpt)
+    model = NewMDGenWrapper.load_from_checkpoint(args.sim_ckpt)
     model.eval().to('cuda')
 
     df = pd.read_csv(args.split, index_col='name')
 
+    failed = []
     for name in df.index:
         if args.pdb_id and name not in args.pdb_id:
             continue
-
         try:
-            print(f"\n[INFO] Processing {name} ...")
-            do(model, name, df.seqres[name])
-            print(f"[INFO] Finished {name}")
+            seq = df.loc[name, 'seqres']
+            # 若 index 重複，loc 會回 Series；取第一個或自行處理
+            if isinstance(seq, pd.Series):
+                seq = seq.iloc[0]
+
+            do(model, name, seq)
 
         except Exception as e:
-            print(f"[ERROR] Failed on {name}: {e}")
-            continue   # skip and go to the next one
+            failed.append((name, repr(e)))
+            print(f"[ERROR] name={name} failed: {e}")
+            traceback.print_exc()
+            # 避免 CUDA error 影響下一輪（尤其是 OOM 後）
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+            continue
+
+    if failed:
+        os.makedirs(args.out_dir, exist_ok=True)
+        with open(os.path.join(args.out_dir, "failed_names.txt"), "w") as f:
+            for n, err in failed:
+                f.write(f"{n}\t{err}\n")
+        print(f"Done. Failed {len(failed)} names. See failed_names.txt")
+
         
 
 main()

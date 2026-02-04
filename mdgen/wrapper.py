@@ -438,9 +438,6 @@ class NewMDGenWrapper(Wrapper):
 
         sample_fn = self.transport_sampler.sample_ode(sampling_method=self.args.sampling_method)  # default to ode #mdgen-teaching
 
-        #### mdgen-teaching 074-Q3########
-        # you need to modify here to get sample_fn[diffusion_time] for different diffusion time data
-        # diffusion time=0.5 -> diffusion_time=4
         samples = sample_fn(
             zs,
             partial(self.model.forward_inference, **prep['model_kwargs'])
@@ -476,13 +473,11 @@ class NewMDGenWrapper(Wrapper):
             torsions = torsions / torch.linalg.norm(torsions, dim=-1, keepdims=True)
         atom14 = frames_torsions_to_atom14(frames, torsions.view(B, T, L, 7, 2),
                                         batch['seqres'][:, None].expand(B, T, L))
-        # you need to  modify the code here to save diffusion time npy and get atom coordinate
-        # np.save(f"{self.args.teaching_testing}/{diffusion_time}.npy", atom14.detach().cpu().numpy())
         if self.args.design:
             aa_out = torch.argmax(logits, -1)
         else:
             aa_out = batch['seqres'][:, None].expand(B, T, L)
-        #### mdgen-teaching 074-Q3########
+        return atom14, aa_out
         
 
     def validation_step_extra(self, batch, batch_idx):

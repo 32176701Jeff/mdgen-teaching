@@ -214,7 +214,6 @@ class LatentMDGenModel(nn.Module):
                 x_cond=None, x_cond_mask=None,
                 aatype=None
                 ):
-        mdgen_teaching_t = t.item()
         if self.args.dynamic_mpnn:
             x = x[:, [0, -1]]
             x_cond = x_cond[:, [0, -1]]
@@ -232,10 +231,6 @@ class LatentMDGenModel(nn.Module):
             x_d = None
 
         x = self.latent_to_emb(x)  # 384 dim token
-        ##### mdgen-teaching 65-Q1 #####
-        if hasattr(self.args, "teaching_ipa") and self.args.teaching_ipa:
-           np.save(f"{self.args.teaching_ipa}/{mdgen_teaching_t}.npy", x.detach().cpu().numpy())
-        ##### mdgen-teaching 65-Q1 #####
         if self.args.abs_pos_emb:
             x = x + self.pos_embed
 
@@ -249,21 +244,11 @@ class LatentMDGenModel(nn.Module):
 
         if self.args.prepend_ipa:  # IPA doesn't need checkpointing
             uuu = self.run_ipa(t[:, 0], mask[:, 0], start_frames, end_frames, aatype, x_d=x_d)
-            
-            # ##### mdgen-teaching,ipa #####
-            if hasattr(self.args, "ipa_feature") and self.args.teaching_ipa:
-                np.save(f"{self.args.ipa_feature}/{mdgen_teaching_t}.npy", uuu.detach().cpu().numpy())
-            # ##### mdgen-teaching,ipa #####
             x = x + uuu[:, None]
 
         for layer_idx, layer in enumerate(self.layers):
             x = grad_checkpoint(layer, (x, t, mask, start_frames), self.args.grad_checkpointing)
             # print(x.shape) # torch.Size([1, 250, 70, 384])
-
-        # ##### mdgen-teaching #####
-        if hasattr(self.args, "teaching_dta") and self.args.teaching_dta:
-            np.save(f"{self.args.teaching_dta}/{mdgen_teaching_t}.npy", x.detach().cpu().numpy())
-        # ##### mdgen-teaching #####
 
         if not (self.args.dynamic_mpnn or self.args.mpnn):
             latent = self.emb_to_latent(x, t)
