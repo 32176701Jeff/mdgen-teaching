@@ -1,116 +1,60 @@
-def rmsf_geo_periods_to_npz_per_period(
-    pdb_path,
-    dcd_list,
-    out_dir,
-    period_list,
-    stride=1,
-    align_sel="protein and name CA",
-    w1=27,
-    chunk=1000,
-):
+import os
+import glob
+import numpy as np
+import matplotlib.pyplot as plt
+import MDAnalysis as mda
+from sklearn.decomposition import PCA
+from scipy.spatial import ConvexHull
+
+def save_lastframes_ca_to_npy(pdbxtc_dir, out_npy_dir, last_n, stride=10, max_proteins=None):
     """
-    純幾何 RMSF（Kabsch 對齊到 global frame 0）
-    每個 period 輸出一個 npz
+    讀 pdbxtc_dir 內同名 aaa.pdb/aaa.xtc
+    每個 protein 取最後 last_n frames 的 CA 座標，存成 out_npy_dir/aaa.npy
+    aaa.npy shape: (n_frames_kept, n_ca, 3) dtype=float32
     """
+    os.makedirs(out_npy_dir, exist_ok=True)
 
-    import os
-    import numpy as np
-    import mdtraj as md
+    pdbs, xtcs = {}, {}
+    for fn in os.listdir(pdbxtc_dir):
+        path = os.path.join(pdbxtc_dir, fn)
+        if fn.lower().endswith(".pdb"):
+            pdbs[os.path.splitext(fn)[0]] = path
+        elif fn.lower().endswith(".xtc"):
+            xtcs[os.path.splitext(fn)[0]] = path
 
-    os.makedirs(out_dir, exist_ok=True)
+    names = sorted(set(pdbs.keys()) & set(xtcs.keys()))
+    if max_proteins is not None:
+        names = names[:max_proteins]
+    if len(names) == 0:
+        raise RuntimeError(f"No matched *.pdb/*.xtc pairs found in: {pdbxtc_dir}")
 
-    # ---------- Kabsch ----------
-    def kabsch_rot(P, Q):
-        H = P.T @ Q
-        U, S, Vt = np.linalg.svd(H)
-        R = Vt.T @ U.T
-        if np.linalg.det(R) < 0:
-            Vt[-1] *= -1
-            R = Vt.T @ U.T
-        return R
+    for name in names:
+        pdb = pdbs[name]
+        xtc = xtcs[name]
+        out_npy = os.path.join(out_npy_dir, f"{name}.npy")
 
-    def smooth(x, w):
-        if w <= 1:
-            return x.copy()
-        return np.convolve(x, np.ones(w) / w, mode="same")
+        try:
+            u = mda.Universe(pdb, xtc)
+            ca = u.select_atoms("name CA")
+            if ca.n_atoms == 0:
+                print(f"[SKIP] {name}: no CA")
+                continue
 
-    def in_period(i, s, e):
-        return s <= i < e
+            frame_indices = list(range(0, last_n, stride))
 
-    # ---------- topology ----------
-    top = md.load(pdb_path)
-    ca_indices = top.topology.select(align_sel)
-    if ca_indices.size == 0:
-        raise ValueError(f"align_sel returned 0 atoms: {align_sel}")
+            arr = np.empty((len(frame_indices), ca.n_atoms, 3), dtype=np.float32)
+            for i, fi in enumerate(frame_indices):
+                u.trajectory[fi]
+                arr[i] = ca.positions.astype(np.float32, copy=False)
 
-    # ---------- containers ----------
-    acc = {p: [] for p in period_list}
+            np.save(out_npy, arr)
+            print(f"[OK] saved {out_npy}  shape={arr.shape}")
 
-    ref_Qc = None
-    ref_cQ = None
-    global_frame = 0
-
-    for dcd in dcd_list:
-        for chunk_traj in md.iterload(dcd, top=pdb_path, chunk=chunk):
-            xyz_chunk = chunk_traj.xyz[:, ca_indices, :].astype(np.float64)
-
-            for i in range(xyz_chunk.shape[0]):
-
-                if global_frame % stride != 0:
-                    global_frame += 1
-                    continue
-
-                P = xyz_chunk[i]
-
-                # reference = global frame 0
-                if ref_Qc is None:
-                    cQ = P.mean(axis=0)
-                    ref_Qc = P - cQ
-                    ref_cQ = cQ
-                    global_frame += 1
-                    continue
-
-                for (s, e) in period_list:
-                    if in_period(global_frame, s, e):
-                        cP = P.mean(axis=0)
-                        Pc = P - cP
-                        R = kabsch_rot(Pc, ref_Qc)
-                        aligned = Pc @ R + ref_cQ
-                        acc[(s, e)].append(aligned)
-
-                global_frame += 1
-
-    # ---------- output per period ----------
-    for (s, e), coords in acc.items():
-        coords = np.asarray(coords)
-        if coords.shape[0] == 0:
-            print(f"[WARN] period {s}-{e}: no frames collected")
-            continue
-
-        mean = coords.mean(axis=0)
-        rmsf = np.sqrt(np.mean(np.sum((coords - mean) ** 2, axis=2), axis=0))
-        rmsf_s = smooth(rmsf, w1)
-
-        out_npz = os.path.join(out_dir, f"rmsf_{s}_{e}.npz")
-        np.savez(
-            out_npz,
-            ca_indices=ca_indices,
-            period=np.array([s, e]),
-            rmsf=rmsf,
-            rmsf_smooth=rmsf_s,
-            w1=w1,
-        )
+        except Exception as e:
+            print(f"[FAIL] {name}: {e}")
 
 
-
-pdb = '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt.pdb'
-dcd = ['/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt.dcd',
-       '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt_0202.dcd',
-       '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt_0203.dcd']
-period = [
-    (2000, 3000),
-    (5000, 6000),
-    (10000, 11000),
-    (15000, 16000),]
-npz_dir = '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/analysis/rmsf/npz'
-rmsf_geo_periods_to_npz_per_period(pdb,dcd,npz_dir,period)
+pdbxtc = '/mnt/hdd/jeff/dataset/output/collagen/zh-all-pdbxtc'
+npy = '/mnt/hdd/jeff/dataset/output/collagen/zh-all/mdgen-collagen-lidar/npy'
+last_n = 90
+save_lastframes_ca_to_npy(pdbxtc,npy,last_n)

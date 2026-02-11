@@ -6,12 +6,16 @@ def pca_kabsch_stream_to_npz(
     n_components=2,
     ref_frame_global=0,
     chunk=1000,
+    start=None,
+    end=None,
 ):
     """
     Streaming PCA with Kabsch alignment
     - mdtraj.iterload (RAM-safe)
     - IncrementalPCA
     - output npz (no plotting)
+
+    Only frames in [start, end] are used for PCA and saved.
     """
 
     import numpy as np
@@ -47,6 +51,14 @@ def pca_kabsch_stream_to_npz(
     N = len(atom_idx)
     ipca = IncrementalPCA(n_components=n_components)
 
+    # helper: frame selection
+    def in_range(i):
+        if start is not None and i < start:
+            return False
+        if end is not None and i > end:
+            return False
+        return True
+
     # ---------- pass 1: partial_fit ----------
     ref_Qc = None
     ref_cQ = None
@@ -57,7 +69,6 @@ def pca_kabsch_stream_to_npz(
     for dcd in dcd_list:
         for chunk_traj in md.iterload(dcd, top=pdb_path, chunk=chunk):
             xyz = chunk_traj.xyz[:, atom_idx, :].astype(np.float64)
-
             X_batch = []
 
             for i in range(xyz.shape[0]):
@@ -71,8 +82,10 @@ def pca_kabsch_stream_to_npz(
                     global_frame += 1
                     continue
 
-                aligned = align_to_ref(P, ref_Qc, ref_cQ)
-                X_batch.append(aligned.reshape(-1))
+                if in_range(global_frame):
+                    aligned = align_to_ref(P, ref_Qc, ref_cQ)
+                    X_batch.append(aligned.reshape(-1))
+
                 global_frame += 1
 
             if X_batch:
@@ -91,7 +104,6 @@ def pca_kabsch_stream_to_npz(
     for dcd in dcd_list:
         for chunk_traj in md.iterload(dcd, top=pdb_path, chunk=chunk):
             xyz = chunk_traj.xyz[:, atom_idx, :].astype(np.float64)
-
             X_batch = []
 
             for i in range(xyz.shape[0]):
@@ -105,9 +117,11 @@ def pca_kabsch_stream_to_npz(
                     global_frame += 1
                     continue
 
-                aligned = align_to_ref(P, ref_Qc, ref_cQ)
-                X_batch.append(aligned.reshape(-1))
-                frame_order.append(global_frame)
+                if in_range(global_frame):
+                    aligned = align_to_ref(P, ref_Qc, ref_cQ)
+                    X_batch.append(aligned.reshape(-1))
+                    frame_order.append(global_frame)
+
                 global_frame += 1
 
             if X_batch:
@@ -125,18 +139,27 @@ def pca_kabsch_stream_to_npz(
         evr=ipca.explained_variance_ratio_,
         align_sel=align_sel,
         n_atoms=N,
+        start=start,
+        end=end,
     )
 
     print(f"PCA data saved to: {out_npz}")
 
-pdb = '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt.pdb'
-dcd = ['/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt.dcd',
-       '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt_0202.dcd',
-       '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt_0203.dcd']
-npz = '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/analysis/pca/npz/0-25000.npz'
 
+
+pdb = '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt.pdb'
+dcd_list = ['/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt.dcd',
+            '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt_0202.dcd',
+            '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/raw/wt_0203.dcd']
+npz = '/mnt/hdd/jeff/dataset/output/collagen/namd/wt/analysis/pca/npz/20000-24000.npz'
 pca_kabsch_stream_to_npz(
     pdb,
-    dcd,
+    dcd_list,
     npz,
+    align_sel="protein and name CA",
+    n_components=2,
+    ref_frame_global=0,
+    chunk=1000,
+    start=20000,
+    end=24000,
 )
