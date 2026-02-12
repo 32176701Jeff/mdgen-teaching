@@ -1,60 +1,164 @@
-import os
-import glob
-import numpy as np
-import matplotlib.pyplot as plt
-import MDAnalysis as mda
-from sklearn.decomposition import PCA
-from scipy.spatial import ConvexHull
-
-def save_lastframes_ca_to_npy(pdbxtc_dir, out_npy_dir, last_n, stride=10, max_proteins=None):
+def pca_kabsch_stream_to_npz(
+    pdb_path,
+    dcd_list,
+    out_npz,
+    align_sel="protein and name CA",
+    n_components=2,
+    ref_frame_global=0,
+    chunk=1000,
+    start=None,
+    end=None,
+):
     """
-    讀 pdbxtc_dir 內同名 aaa.pdb/aaa.xtc
-    每個 protein 取最後 last_n frames 的 CA 座標，存成 out_npy_dir/aaa.npy
-    aaa.npy shape: (n_frames_kept, n_ca, 3) dtype=float32
+    Streaming PCA with Kabsch alignment
+    - mdtraj.iterload (RAM-safe)
+    - IncrementalPCA
+    - output npz (no plotting)
+
+    Only frames in [start, end] are used for PCA and saved.
     """
-    os.makedirs(out_npy_dir, exist_ok=True)
 
-    pdbs, xtcs = {}, {}
-    for fn in os.listdir(pdbxtc_dir):
-        path = os.path.join(pdbxtc_dir, fn)
-        if fn.lower().endswith(".pdb"):
-            pdbs[os.path.splitext(fn)[0]] = path
-        elif fn.lower().endswith(".xtc"):
-            xtcs[os.path.splitext(fn)[0]] = path
+    import numpy as np
+    import mdtraj as md
+    from sklearn.decomposition import IncrementalPCA
 
-    names = sorted(set(pdbs.keys()) & set(xtcs.keys()))
-    if max_proteins is not None:
-        names = names[:max_proteins]
-    if len(names) == 0:
-        raise RuntimeError(f"No matched *.pdb/*.xtc pairs found in: {pdbxtc_dir}")
+    # ---------- Kabsch ----------
+    def kabsch_rot(P, Q):
+        H = P.T @ Q
+        U, S, Vt = np.linalg.svd(H)
+        R = Vt.T @ U.T
+        if np.linalg.det(R) < 0:
+            Vt[-1] *= -1
+            R = Vt.T @ U.T
+        return R
 
-    for name in names:
-        pdb = pdbs[name]
-        xtc = xtcs[name]
-        out_npy = os.path.join(out_npy_dir, f"{name}.npy")
+    def align_to_ref(P, Qc, cQ):
+        cP = P.mean(axis=0)
+        Pc = P - cP
+        R = kabsch_rot(Pc, Qc)
+        return Pc @ R + cQ
 
-        try:
-            u = mda.Universe(pdb, xtc)
-            ca = u.select_atoms("name CA")
-            if ca.n_atoms == 0:
-                print(f"[SKIP] {name}: no CA")
-                continue
+    # ---------- normalize dcd_list ----------
+    if isinstance(dcd_list, str):
+        dcd_list = [dcd_list]
 
-            frame_indices = list(range(0, last_n, stride))
+    # ---------- topology ----------
+    top = md.load(pdb_path)
+    atom_idx = top.topology.select(align_sel)
+    if atom_idx.size == 0:
+        raise ValueError(f"align_sel returned 0 atoms: {align_sel}")
 
-            arr = np.empty((len(frame_indices), ca.n_atoms, 3), dtype=np.float32)
-            for i, fi in enumerate(frame_indices):
-                u.trajectory[fi]
-                arr[i] = ca.positions.astype(np.float32, copy=False)
+    N = len(atom_idx)
+    ipca = IncrementalPCA(n_components=n_components)
 
-            np.save(out_npy, arr)
-            print(f"[OK] saved {out_npy}  shape={arr.shape}")
+    # helper: frame selection
+    def in_range(i):
+        if start is not None and i < start:
+            return False
+        if end is not None and i > end:
+            return False
+        return True
 
-        except Exception as e:
-            print(f"[FAIL] {name}: {e}")
+    # ---------- pass 1: partial_fit ----------
+    ref_Qc = None
+    ref_cQ = None
+    global_frame = 0
+
+    print("PCA pass 1: fitting IncrementalPCA")
+
+    for dcd in dcd_list:
+        for chunk_traj in md.iterload(dcd, top=pdb_path, chunk=chunk):
+            xyz = chunk_traj.xyz[:, atom_idx, :].astype(np.float64)
+            X_batch = []
+
+            for i in range(xyz.shape[0]):
+                P = xyz[i]
+
+                if ref_Qc is None:
+                    if global_frame == ref_frame_global:
+                        cQ = P.mean(axis=0)
+                        ref_Qc = P - cQ
+                        ref_cQ = cQ
+                    global_frame += 1
+                    continue
+
+                if in_range(global_frame):
+                    aligned = align_to_ref(P, ref_Qc, ref_cQ)
+                    X_batch.append(aligned.reshape(-1))
+
+                global_frame += 1
+
+            if X_batch:
+                ipca.partial_fit(np.vstack(X_batch))
+
+    # ---------- pass 2: transform ----------
+    print("PCA pass 2: transforming coordinates")
+
+    Z_all = []
+    frame_order = []
+
+    global_frame = 0
+    ref_Qc = None
+    ref_cQ = None
+
+    for dcd in dcd_list:
+        for chunk_traj in md.iterload(dcd, top=pdb_path, chunk=chunk):
+            xyz = chunk_traj.xyz[:, atom_idx, :].astype(np.float64)
+            X_batch = []
+
+            for i in range(xyz.shape[0]):
+                P = xyz[i]
+
+                if ref_Qc is None:
+                    if global_frame == ref_frame_global:
+                        cQ = P.mean(axis=0)
+                        ref_Qc = P - cQ
+                        ref_cQ = cQ
+                    global_frame += 1
+                    continue
+
+                if in_range(global_frame):
+                    aligned = align_to_ref(P, ref_Qc, ref_cQ)
+                    X_batch.append(aligned.reshape(-1))
+                    frame_order.append(global_frame)
+
+                global_frame += 1
+
+            if X_batch:
+                Z = ipca.transform(np.vstack(X_batch))
+                Z_all.append(Z)
+
+    Z_all = np.vstack(Z_all)
+    frame_order = np.array(frame_order)
+
+    # ---------- save ----------
+    np.savez(
+        out_npz,
+        pc_coords=Z_all,
+        frame_order=frame_order,
+        evr=ipca.explained_variance_ratio_,
+        align_sel=align_sel,
+        n_atoms=N,
+        start=start,
+        end=end,
+    )
+
+    print(f"PCA data saved to: {out_npz}")
 
 
-pdbxtc = '/mnt/hdd/jeff/dataset/output/collagen/zh-all-pdbxtc'
-npy = '/mnt/hdd/jeff/dataset/output/collagen/zh-all/mdgen-collagen-lidar/npy'
-last_n = 90
-save_lastframes_ca_to_npy(pdbxtc,npy,last_n)
+pdb = '/mnt/hdd/jeff/dataset/output/collagen/wt-0-25000/namd/raw/homo_neutral.pdb'
+dcd_list = ['/mnt/hdd/jeff/dataset/output/collagen/wt-0-25000/wt/raw/wt.dcd',
+            '/mnt/hdd/jeff/dataset/output/collagen/wt-0-25000/wt/raw/wt_0202.dcd',
+            '/mnt/hdd/jeff/dataset/output/collagen/wt-0-25000/wt/raw/wt_0203.dcd',
+            '/mnt/hdd/jeff/dataset/output/collagen/wt-0-25000/namd/npt-out/wt_0208.dcd']
+npz = '/mnt/hdd/jeff/dataset/output/collagen/wt-0-25000/wt/analysis/pca/npz/0-30000.npz'
+pca_kabsch_stream_to_npz(
+    pdb,
+    dcd_list,
+    npz,
+    align_sel="protein and name CA",
+    n_components=2,
+    ref_frame_global=0,
+    chunk=1000,
+    end=30000
+)
